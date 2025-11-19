@@ -1,0 +1,218 @@
+{
+  "name": "Controle de Despesas",
+  "nodes": [
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message.text }}",
+        "options": {
+          "systemMessage": "=Você é um assistente financeiro que recebe textos ou áudios transcritos enviados pelo usuário no Telegram.\n\nSua tarefa é **interpretar a mensagem** e **extrair os seguintes dados de uma despesa**, retornando APENAS um JSON válido:\n\n{\n  \"descricao\": \"\",\n  \"categoria\": \"\",\n  \"data\": \"\",\n  \"valor\": 0\n}\n\nREGRAS:\n\n1) **\"descricao\"**  \nDescreva a despesa em poucas palavras.  \nExemplos: \"pão na padaria\", \"uber para o trabalho\", \"remédio na farmácia\".\n\n2) **\"categoria\"**  \nClassifique obrigatoriamente em UMA das opções abaixo:  \n[\"Alimentação\", \"Transporte\", \"Saúde\", \"Moradia\", \"Lazer\", \"Educação\", \"Outros\"]  \nSe não tiver certeza, use \"Outros\".\n\n3) **\"data\"**  \nUse o formato ISO (YYYY-MM-DD).  \nSe o usuário disser algo como “hoje”, “ontem”, “agora cedo”, “mais cedo”, “domingo”, “sábado” etc, interprete em relação à **data da mensagem**, que está disponível como:  \n{{ $node[\"Telegram Trigger1\"].json.message.date * 1000 | toDate | toISOString | slice(0,10) }}\n\n4) **\"valor\"**  \nExtraia somente o número.  \nAceite formatos como: \"10\", \"10 reais\", \"R$ 10\", \"10,50\", \"10.50\"  \nRetorne como número decimal (ponto como separador).\n\n5) **Mensagens que não forem despesas**  \nSe a mensagem NÃO contiver nenhuma despesa, retorne o JSON com campos vazios ou valor 0, assim:\n\n{\n  \"descricao\": \"\",\n  \"categoria\": \"\",\n  \"data\": \"\",\n  \"valor\": 0\n}\n\nIMPORTANTE:\n- Seu output deve ser **somente o JSON**, sem texto adicional.\n- Não escreva explicações, comentários, nem frases antes ou depois.\n- Nunca invente valores — somente retorne o que está na mensagem.\n- Seja estritamente consistente e preciso.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        -192,
+        -112
+      ],
+      "id": "38b7a971-2260-4842-8c29-8b5e83486d0e",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -192,
+        80
+      ],
+      "id": "425dd422-f2cf-4bfa-aa60-931af4b0310a",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "XUZ4ooPbsRYvcYXV",
+          "name": "MARTINS - GEMINI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -400,
+        -112
+      ],
+      "id": "3f51076b-a7ac-47c5-990b-fe0ef8773453",
+      "name": "Telegram Trigger1",
+      "webhookId": "e150778b-5cad-4a7e-9be9-753b611d26fd",
+      "credentials": {
+        "telegramApi": {
+          "id": "3YU459c6Kft8d0jh",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "databaseId": {
+          "__rl": true,
+          "value": "2af66496-a7dc-8039-bfeb-c0f12273e8f3",
+          "mode": "list",
+          "cachedResultName": "Despesas",
+          "cachedResultUrl": "https://www.notion.so/2af66496a7dc8039bfebc0f12273e8f3"
+        },
+        "simple": false,
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Despesa|title",
+              "title": "={{ $json.descricao }}"
+            },
+            {
+              "key": "Data|date",
+              "date": "={{ $json.data }}"
+            },
+            {
+              "key": "Categoria|select",
+              "selectValue": "={{ $json.categoria }}"
+            },
+            {
+              "key": "Valor|number",
+              "numberValue": "={{ $json.valor }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [
+        368,
+        -112
+      ],
+      "id": "fcaf4aac-9c38-4626-89d9-823153a33849",
+      "name": "Create a database page",
+      "credentials": {
+        "notionApi": {
+          "id": "yhvAc0uJmk5cSPgn",
+          "name": "Notion account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Captura o texto bruto vindo do modelo\nlet raw = $json.output || \"\";\n\n// 2. Remove blocos ```json e ``` do markdown\nlet cleaned = raw\n  .replace(/```json/gi, \"\")\n  .replace(/```/g, \"\")\n  .trim();\n\nlet data;\n\ntry {\n  // 3. Faz parse do JSON limpo\n  data = JSON.parse(cleaned);\n} catch (e) {\n  throw new Error(\n    \"Erro ao fazer JSON.parse no retorno do modelo. Conteúdo recebido:\\n\" +\n    cleaned\n  );\n}\n\n// 4. Garante defaults e retorna em formato compatível com o Notion e próximos nós\nreturn [\n  {\n    json: {\n      descricao: data.descricao || \"\",\n      categoria: data.categoria || \"Outros\",\n      data: data.data || new Date().toISOString().slice(0, 10),\n      valor: Number(data.valor) || 0\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        -112
+      ],
+      "id": "317eefe3-ea5b-47d3-a309-61203a104d39",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger1').item.json.message.from.id }}",
+        "text": "={{\"Despesa com \" }}{{$('Code in JavaScript').item.json.categoria }}{{\" registrada com sucesso\"}}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        592,
+        -112
+      ],
+      "id": "7d18c9bb-8da7-4996-90b9-28a580de3609",
+      "name": "Send a text message1",
+      "webhookId": "151e80d9-4c0d-4aa4-9ea9-7de1fb13937f",
+      "credentials": {
+        "telegramApi": {
+          "id": "3YU459c6Kft8d0jh",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger1": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a database page": {
+      "main": [
+        [
+          {
+            "node": "Send a text message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Create a database page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "7e512a92-6378-42bc-92f9-030d3edb15a6",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "f7b1efab27cbafc2c6142f17b149339e793a2430377609d25e72b125dd33be43"
+  },
+  "id": "lhDMsfIHjTzKLtgc",
+  "tags": []
+}
